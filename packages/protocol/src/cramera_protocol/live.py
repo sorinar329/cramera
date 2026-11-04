@@ -170,6 +170,11 @@ class LiveRoute(StrEnum):
     How the open parts of the plans were resolved.
     """
 
+    DIAGNOSES = "/diagnoses"
+    """
+    How the failed attempts were diagnosed and recovered.
+    """
+
     RESOLUTION_EXECUTION = "/resolutions/execute"
     """
     Carries out the plan a resolution resolved.
@@ -271,6 +276,11 @@ class Capability(StrEnum):
     RESOLUTIONS = "resolutions"
     """
     How the open parts of the plans were resolved is published.
+    """
+
+    DIAGNOSES = "diagnoses"
+    """
+    How the failed attempts were diagnosed and recovered is published.
     """
 
     RESOLUTION_EXECUTION = "resolution_execution"

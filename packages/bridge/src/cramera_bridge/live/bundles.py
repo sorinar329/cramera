@@ -42,6 +42,7 @@ from semantic_digital_twin.world_description.world_entity import Body
 
 if TYPE_CHECKING:
     from cramera_bridge.live.plan import PerformedPlan
+    from semantic_digital_twin.world import World
 
 SIGNATURE_LENGTH = 16
 """
@@ -77,6 +78,16 @@ The directory below ``meshes`` holding the live bundle's meshes.
 RECORDING_MESH_DIRECTORY = "recording"
 """
 The directory below ``meshes`` holding a recording's meshes.
+"""
+
+BACKDROP_MESH_DIRECTORY = "backdrop"
+"""
+The directory below ``meshes`` holding the live backdrop's meshes.
+"""
+
+BACKDROP_MODEL_NAME = "backdrop"
+"""
+The name of the model drawing the live backdrop.
 """
 
 # %% model identity
@@ -317,6 +328,22 @@ class LiveBundleWriter:
     Serializes writes.
     """
 
+    backdrop: Optional[World] = None
+    """
+    A world drawn around the live one, whose model never changes.
+    """
+
+    backdrop_signature: str = field(default="", init=False)
+    """
+    The identity of what :attr:`backdrop` shows; empty without a backdrop.
+    """
+
+    def __post_init__(self) -> None:
+        if self.backdrop is not None:
+            self.backdrop_signature = WorldSignature(
+                WorldModelView.of_world(self.backdrop), None
+            ).digest()
+
     def live_scene(
         self, model: WorldModelView, selected_robot: Optional[AbstractRobot]
     ) -> str:
@@ -327,7 +354,7 @@ class LiveBundleWriter:
         :param selected_robot: The selected robot.
         :return: The bundle's name.
         """
-        signature = WorldSignature(model, selected_robot).digest()
+        signature = self.signature(model, selected_robot)
         directory = BundleDirectory(self.scenes_directory / ReservedSceneName.LIVE)
         with self.lock:
             existing = DocumentFile(directory.path / BundleFile.SCENE).read_if_present(
@@ -339,6 +366,15 @@ class LiveBundleWriter:
             models = WorldModels(model.world, staging, LIVE_MESH_DIRECTORY).write(
                 model.objects, selected_robot
             )
+            if self.backdrop is not None:
+                backdrop = WorldModels(
+                    self.backdrop,
+                    staging,
+                    BACKDROP_MESH_DIRECTORY,
+                    environment_name=BACKDROP_MODEL_NAME,
+                ).write([], None)
+                models.models.extend(backdrop.models)
+                models.missing_assets.extend(backdrop.missing_assets)
             scene = SceneDescription(
                 name=ReservedSceneName.LIVE,
                 format_version=CURRENT_VERSION,
@@ -354,6 +390,16 @@ class LiveBundleWriter:
             DocumentFile(staging / BundleFile.SCENE).write(scene)
             directory.publish(staging)
         return ReservedSceneName.LIVE
+
+    def signature(
+        self, model: WorldModelView, selected_robot: Optional[AbstractRobot]
+    ) -> str:
+        """
+        :param model: The world's current model.
+        :param selected_robot: The selected robot.
+        :return: The identity of what the ``__live__`` bundle shows.
+        """
+        return WorldSignature(model, selected_robot).digest() + self.backdrop_signature
 
     def recording(
         self,

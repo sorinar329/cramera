@@ -111,6 +111,11 @@ class WorldModels:
     The folder below ``meshes`` the models' meshes go to.
     """
 
+    environment_name: str = ENVIRONMENT_MODEL_NAME
+    """
+    The name of the model holding every body outside the robots and the free objects.
+    """
+
     def write(
         self, objects: Sequence[Body], selected_robot: Optional[AbstractRobot]
     ) -> WorldModelsBundle:
@@ -146,7 +151,7 @@ class WorldModels:
             if body.id not in claimed
         ]
         if environment:
-            report = self.document().write(environment, ENVIRONMENT_MODEL_NAME)
+            report = self.document().write(environment, self.environment_name)
             bundle.models.append(self.description(report, robot=False))
             bundle.missing_assets.extend(report.missing)
             self.add_classes(bundle.classes, report)

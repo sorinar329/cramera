@@ -26,6 +26,7 @@ import { LOST_NOTE, TimelineView, WAITING_NOTE } from '../playback/timeline-view
 import { DetailsPanel } from '../panels/details-panel.js';
 import { PerceptionPanel } from '../panels/perception-panel.js';
 import { QueryStepActions, QueryStepsPanel } from '../panels/query-steps-panel.js';
+import { DiagnosisPanel } from '../panels/diagnosis-panel.js';
 import { ResolutionActions, ResolutionsPanel } from '../panels/resolutions-panel.js';
 import { SceneGraphPanel } from '../panels/scene-graph-panel.js';
 import { SegmindPanel } from '../panels/segmind-panel.js';
@@ -365,6 +366,12 @@ export class Application {
   #resolutions;
 
   /**
+   * How the failed attempts were diagnosed and recovered.
+   * @type {DiagnosisPanel}
+   */
+  #diagnosis;
+
+  /**
    * The Queries panel.
    * @type {QueryStepsPanel}
    */
@@ -456,6 +463,7 @@ export class Application {
         (topic, namespace, shown) => this.#markers?.setNamespaceShown(topic, namespace, shown),
       ),
     );
+    this.#diagnosis = new DiagnosisPanel(elements.document);
     this.#resolutions = new ResolutionsPanel(
       elements.document,
       this.bus,
@@ -537,7 +545,7 @@ export class Application {
     this.#view.start((seconds) => this.#tick(seconds));
     const context = new PluginContext(this.bus, this.#panels, this.#api, this.#view, this.#querySlot, info);
     await new PluginModules(importModule).register(info, context, (module) => this.#api.url(module));
-    for (const part of [this.#sceneGraph, this.#perception, this.#segmind, this.#resolutions, this.#querySteps, this.#details, this.#livePanel]) this.#panels.add(part.panel);
+    for (const part of [this.#sceneGraph, this.#perception, this.#segmind, this.#diagnosis, this.#resolutions, this.#querySteps, this.#details, this.#livePanel]) this.#panels.add(part.panel);
     const panel = panelOf(this.#location.href);
     if (panel && this.#panels.identifiers().includes(panel)) this.#panels.show(panel);
     if (liveAddress) this.connectLive(liveAddress);
@@ -630,6 +638,10 @@ export class Application {
         (detected) => this.#segmind.showLive(detected),
         (overlay) => this.#showMarkers(overlay),
         (topics) => this.#livePanel.showMarkerTopics(topics),
+        (diagnoses) => {
+          if (this.#diagnosis.revision === null) this.#panels.show(this.#diagnosis.panel.identifier);
+          this.#diagnosis.show(diagnoses);
+        },
       ),
     );
     this.#livePanel.showConnecting(true, null, address);
@@ -648,6 +660,7 @@ export class Application {
     this.#live.stop();
     this.#live = null;
     this.#resolutions.stop();
+    this.#diagnosis.clear();
     this.#querySteps.stop();
     this.#markers?.clear();
     this.#livePanel.showMarkerNamespaces([]);
