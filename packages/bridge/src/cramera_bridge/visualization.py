@@ -70,7 +70,8 @@ The value of :attr:`DetectionEnvironmentVariable.DETECT_EVENTS` that turns detec
 @dataclass(eq=False)
 class PublishedStateChange(StateChangeCallback):
     """
-    Lets the publisher take a snapshot whenever the world's state changes.
+    Tells the publisher whenever the world's state changes, so it takes a snapshot at
+    its pace.
     """
 
     publisher: LivePublisher = field(kw_only=True)
@@ -79,7 +80,7 @@ class PublishedStateChange(StateChangeCallback):
     """
 
     def on_state_change(self, **kwargs: Any) -> None:
-        self.publisher.observe_state_change()
+        self.publisher.mark_state_changed()
 
 
 @dataclass(eq=False)

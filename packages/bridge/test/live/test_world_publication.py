@@ -9,6 +9,7 @@ import json
 from http import HTTPStatus
 
 import pytest
+from typing_extensions import Iterator
 
 from cramera.exceptions import PathOutsideDirectory
 from cramera.http.messages import HttpMethod
@@ -18,6 +19,7 @@ from cramera_bridge.live.activity import SimulationActivity
 from cramera_bridge.live.objects import ServedMesh, ShapePublication
 from cramera_bridge.live.publisher import LivePublisher
 from cramera_bridge.live.statechart import ChartStructure
+from cramera_bridge.visualization import PublishedStateChange
 from cramera_bridge.live.transforms import (
     MOVING_SECONDS,
     SETTLED_SECONDS,
@@ -34,8 +36,9 @@ from cramph.data_types import LifeCycleValues, ObservationStateValues
 from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.world_description.geometry import Mesh
 
-from ..dataset.live_worlds import HeightChart
+from ..dataset.live_worlds import HeightChart, WorldReader
 from ..dataset.worlds import CUP_MESH
+from ..recording.clock import ManualClock
 from .conftest import live_request
 
 # %% state
@@ -64,6 +67,89 @@ def test_nothing_is_published_before_a_world_is_attached(locations):
     assert publisher.live_scene().scene is None
     with pytest.raises(NoWorldAttached):
         publisher.surfaces()
+
+
+# %% pacing of state snapshots
+
+
+@pytest.fixture
+def clock() -> ManualClock:
+    """
+    :return: The clock of :func:`paced_publisher`, set by hand.
+    """
+    return ManualClock()
+
+
+@pytest.fixture
+def paced_publisher(kitchen, locations, clock) -> Iterator[LivePublisher]:
+    """
+    :return: A publisher attached to the kitchen world, told of its state changes and
+        reading the time from :func:`clock`.
+    """
+    publisher = LivePublisher(locations=locations, clock=clock)
+    publisher.attach(kitchen.world)
+    callback = PublishedStateChange(_world=kitchen.world, publisher=publisher)
+    yield publisher
+    callback.stop()
+
+
+def test_a_state_change_soon_after_a_snapshot_waits(paced_publisher, kitchen):
+    before = paced_publisher.current_state().sequence_number
+    kitchen.world.notify_state_change()
+    assert paced_publisher.current_state().sequence_number == before
+
+
+def test_a_state_change_a_snapshot_interval_later_is_published(
+    paced_publisher, kitchen, clock
+):
+    before = paced_publisher.current_state().sequence_number
+    clock.now += paced_publisher.snapshot_interval
+    kitchen.world.notify_state_change()
+    assert paced_publisher.current_state().sequence_number == before + 1
+
+
+def test_a_tick_publishes_the_state_change_that_waited(paced_publisher, kitchen):
+    chart = HeightChart.build(kitchen.world, kitchen.milk)
+    chart.executor.tick()
+    before = paced_publisher.current_state().sequence_number
+    kitchen.world.notify_state_change()
+    paced_publisher.observe_tick(chart.chart, False)
+    assert paced_publisher.current_state().sequence_number == before + 1
+
+
+def test_a_tick_after_no_state_change_publishes_nothing(paced_publisher, kitchen):
+    chart = HeightChart.build(kitchen.world, kitchen.milk)
+    chart.executor.tick()
+    paced_publisher.observe_tick(chart.chart, False)
+    before = paced_publisher.current_state().sequence_number
+    paced_publisher.observe_tick(chart.chart, False)
+    assert paced_publisher.current_state().sequence_number == before
+
+
+def test_an_ended_node_publishes_the_state_change_that_waited(
+    paced_publisher, kitchen
+):
+    chart = HeightChart.build(kitchen.world, kitchen.milk)
+    before = paced_publisher.current_state().sequence_number
+    kitchen.world.notify_state_change()
+    paced_publisher.observe_node_ended(chart.chart.nodes[0])
+    assert paced_publisher.current_state().sequence_number == before + 1
+
+
+def test_a_state_change_while_the_world_is_read_waits_for_the_next_tick(
+    paced_publisher, kitchen, clock
+):
+    chart = HeightChart.build(kitchen.world, kitchen.milk)
+    chart.executor.tick()
+    paced_publisher.observe_tick(chart.chart, False)
+    before = paced_publisher.current_state().sequence_number
+    clock.now += paced_publisher.snapshot_interval
+    with WorldReader(paced_publisher):
+        kitchen.world.notify_state_change()
+        during_the_read = paced_publisher.current_state().sequence_number
+    paced_publisher.observe_tick(chart.chart, False)
+    assert during_the_read == before
+    assert paced_publisher.current_state().sequence_number == before + 1
 
 
 # %% objects

@@ -157,7 +157,13 @@ class LivePublisher:
 
     clock: Callable[[], float] = time.monotonic
     """
-    The monotonic clock transforms are aged with.
+    The monotonic clock transforms are aged and state snapshots are paced with.
+    """
+
+    snapshot_interval: float = 1 / 60
+    """
+    The shortest time between two snapshots of the world's state changes, in seconds,
+    so a world that changes at the physics' rate is published at the viewer's.
     """
 
     world: Optional[World] = field(default=None, init=False)
@@ -179,6 +185,16 @@ class LivePublisher:
     """
     Held while the world is read or written by the publisher; taken before any lock of a
     component.
+    """
+
+    last_snapshot_time: Optional[float] = field(default=None, init=False)
+    """
+    When the newest state snapshot was taken, on :attr:`clock`.
+    """
+
+    snapshot_pending: bool = field(default=False, init=False)
+    """
+    Whether the world's state changed since the newest snapshot without one being taken.
     """
 
     activity: SimulationActivity = field(default_factory=SimulationActivity, init=False)
@@ -321,20 +337,43 @@ class LivePublisher:
             self.desk.presets = WorldKnowledge(world, self.current_objects).presets()
             self.observe_state_change()
 
+    def mark_state_changed(self) -> None:
+        """
+        Take a state snapshot once :attr:`snapshot_interval` passed since the newest
+        one; a change sooner is left to the next one, tick or ended plan node.
+        """
+        if (
+            self.last_snapshot_time is not None
+            and self.clock() - self.last_snapshot_time < self.snapshot_interval
+        ):
+            self.snapshot_pending = True
+            return
+        self.observe_state_change()
+
+    def take_pending_snapshot(self) -> None:
+        """
+        Take the state snapshot a change left to later, if one did.
+        """
+        if self.snapshot_pending:
+            self.observe_state_change()
+
     def observe_state_change(self) -> None:
         """
         Take a state snapshot and record it, unless another thread reads the world
-        right now; the next state change takes the snapshot then.
+        right now; the next tick or ended plan node takes the snapshot then.
 
         A world notifies its state changes while holding its own lock, and a request
         reading the world under :attr:`world_lock` waits for that lock, so waiting here
         for :attr:`world_lock` would leave each thread waiting for the other.
         """
         if not self.world_lock.acquire(blocking=False):
+            self.snapshot_pending = True
             return
         try:
             if self.model is None:
                 return
+            self.snapshot_pending = False
+            self.last_snapshot_time = self.clock()
             self.markers.refresh(self.model.world)
             snapshot = self.state.refresh(
                 self.model, self.selected_robot, self.markers.version()
@@ -381,6 +420,7 @@ class LivePublisher:
         with self.world_lock:
             object_keys = set() if self.model is None else set(self.model.object_keys())
             self.plan.observe_ended(node, object_keys)
+            self.take_pending_snapshot()
 
     def observe_tick(self, chart: Statechart, changed: bool) -> None:
         """
@@ -406,6 +446,7 @@ class LivePublisher:
             self.ticks += 1
             if changed or self.ticks % PLAN_REFRESH_TICKS == 0:
                 self.refresh_plan()
+            self.take_pending_snapshot()
 
     def refresh_plan(self) -> LivePlan:
         """
@@ -735,6 +776,7 @@ class LivePublisher:
         with self.world_lock:
             if self.edits.apply(self.require_model(), self.transforms):
                 self.require_world().notify_state_change()
+            self.take_pending_snapshot()
 
     def attach_constraint(self, request: ConstraintRequest) -> LivePlan:
         """

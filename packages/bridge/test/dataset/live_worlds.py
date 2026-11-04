@@ -5,9 +5,10 @@ CRAM classes and plain message stand-ins.
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass, field
 
-from typing_extensions import List, Optional
+from typing_extensions import TYPE_CHECKING, Any, List, Optional
 
 from coraplex.plans.executors import KinematicallySimulatedPlanExecutor
 from coraplex.robot_plans.actions.base import SequentialAction
@@ -27,6 +28,9 @@ from semantic_digital_twin.datastructures.definitions import TorsoState
 from krrood_spatial_math.spatial_types import Point3
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.world_entity import Body
+
+if TYPE_CHECKING:
+    from cramera_bridge.live.publisher import LivePublisher
 
 # %% plans
 
@@ -177,6 +181,55 @@ class HeightChart:
         )
         executor.compile(chart)
         return cls(chart=chart, executor=executor)
+
+
+# %% world readers
+
+
+@dataclass
+class WorldReader:
+    """
+    Holds a publisher's world lock on a thread of its own while the block runs, as a
+    request reading the world does.
+    """
+
+    publisher: LivePublisher
+    """
+    The publisher whose world is read.
+    """
+
+    holding: threading.Event = field(default_factory=threading.Event, init=False)
+    """
+    Set once the reader holds the world lock.
+    """
+
+    done: threading.Event = field(default_factory=threading.Event, init=False)
+    """
+    Set when the reader is to let the world lock go.
+    """
+
+    thread: Optional[threading.Thread] = field(default=None, init=False)
+    """
+    The reader's thread, while it runs.
+    """
+
+    def read(self) -> None:
+        """
+        Hold the world lock until :attr:`done` is set.
+        """
+        with self.publisher.world_lock:
+            self.holding.set()
+            self.done.wait()
+
+    def __enter__(self) -> WorldReader:
+        self.thread = threading.Thread(target=self.read)
+        self.thread.start()
+        self.holding.wait()
+        return self
+
+    def __exit__(self, *exception: Any) -> None:
+        self.done.set()
+        self.thread.join()
 
 
 # %% marker messages
