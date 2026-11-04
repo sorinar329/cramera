@@ -9,7 +9,7 @@ import { Capability, LiveInfoKey, LiveRoute, LiveSceneKey, LiveStateKey, ViewerE
 /**
  * How often each part of the publisher is polled, in milliseconds.
  */
-export const PollInterval = Object.freeze({ INFO: 1000, STATE: 100, PLAN: 500, RECORDING: 1000, RESOLUTIONS: 400, QUERY_STEPS: 250, DETECTED_EVENTS: 500 });
+export const PollInterval = Object.freeze({ INFO: 1000, STATE: 33, PLAN: 500, RECORDING: 1000, RESOLUTIONS: 400, QUERY_STEPS: 250, DETECTED_EVENTS: 500, DIAGNOSES: 500 });
 
 // %% callbacks
 
@@ -30,8 +30,10 @@ export class LiveListener {
    *   shown, so only a newer one is read whole.
    * @param {function(Object): void} showDetectedEvents Shows the events the detectors
    *   saw so far.
+   * @param {function(Object): void} showDiagnoses Shows how the failed attempts were
+   *   diagnosed and recovered.
    */
-  constructor(showScene, showState, showPlan, showStatechart, showRecording, showResolutions = () => {}, showQuerySteps = () => {}, shownRevision = () => null, showDetectedEvents = () => {}) {
+  constructor(showScene, showState, showPlan, showStatechart, showRecording, showResolutions = () => {}, showQuerySteps = () => {}, shownRevision = () => null, showDetectedEvents = () => {}, showDiagnoses = () => {}) {
     /**
      * Shows the bundle of the publisher's world.
      * @type {function(string): void}
@@ -77,6 +79,11 @@ export class LiveListener {
      * @type {function(Object): void}
      */
     this.showDetectedEvents = showDetectedEvents;
+    /**
+     * Shows how the failed attempts were diagnosed and recovered.
+     * @type {function(Object): void}
+     */
+    this.showDiagnoses = showDiagnoses;
   }
 }
 
@@ -168,6 +175,7 @@ export class LiveSession {
     this.#every(PollInterval.RESOLUTIONS, () => this.pollResolutions());
     this.#every(PollInterval.QUERY_STEPS, () => this.pollQuerySteps());
     this.#every(PollInterval.DETECTED_EVENTS, () => this.pollDetectedEvents());
+    this.#every(PollInterval.DIAGNOSES, () => this.pollDiagnoses());
     this.pollInfo();
   }
 
@@ -288,6 +296,16 @@ export class LiveSession {
     if (!this.info || !this.offers(Capability.DETECTED_EVENTS)) return;
     const detected = await this.#once(LiveRoute.DETECTED_EVENTS);
     if (detected) this.#listener.showDetectedEvents(detected);
+  }
+
+  /**
+   * Read how the failed attempts were diagnosed when the publisher publishes it.
+   * @returns {Promise<void>} Settles once read or failed.
+   */
+  async pollDiagnoses() {
+    if (!this.info || !this.offers(Capability.DIAGNOSES)) return;
+    const diagnoses = await this.#once(LiveRoute.DIAGNOSES);
+    if (diagnoses) this.#listener.showDiagnoses(diagnoses);
   }
 
   /**

@@ -30,7 +30,7 @@ from cramera_bridge.exceptions import (
     UnknownPerceptionImage,
 )
 from cramera_bridge.live.activity import SimulationActivity
-from cramera_bridge.live.bundles import LiveBundleWriter, WorldSignature
+from cramera_bridge.live.bundles import LiveBundleWriter
 from cramera_bridge.live.constraints import (
     AttachedConstraint,
     ConstraintBoard,
@@ -46,6 +46,7 @@ from cramera_bridge.live.plan import PlanPublisher
 from cramera_bridge.live.query_steps import QueryStepBoard
 from cramera_bridge.live.recording import Recording
 from cramera_bridge.live.recording_storage import RecordingStorage
+from cramera_bridge.live.diagnoses import DiagnosisBoard
 from cramera_bridge.live.resolutions import ResolutionBoard
 from cramera_bridge.live.scene_highlights import SceneHighlighter
 from cramera_bridge.live.statechart import StatechartPublisher
@@ -281,6 +282,17 @@ class LivePublisher:
     How the open parts of the plans were resolved, as the process published it.
     """
 
+    diagnoses: DiagnosisBoard = field(default_factory=DiagnosisBoard, init=False)
+    """
+    How the failed attempts were diagnosed and recovered, as the process published it.
+    """
+
+    backdrop: Optional[World] = None
+    """
+    A world drawn around the published one, at its root, whose model and state are never
+    read again; nothing simulates or records it.
+    """
+
     query_steps: QueryStepBoard = field(default_factory=QueryStepBoard, init=False)
     """
     The queries the process asked, as it published them.
@@ -292,7 +304,9 @@ class LivePublisher:
     """
 
     def __post_init__(self) -> None:
-        self.bundle_writer = LiveBundleWriter(self.locations.local_scenes)
+        self.bundle_writer = LiveBundleWriter(
+            self.locations.local_scenes, backdrop=self.backdrop
+        )
 
     # %% simulation thread
 
@@ -502,6 +516,8 @@ class LivePublisher:
             offered.append(Capability.RESOLUTIONS)
         if self.resolutions.offers_execution():
             offered.append(Capability.RESOLUTION_EXECUTION)
+        if self.diagnoses.is_published():
+            offered.append(Capability.DIAGNOSES)
         if self.query_steps.is_published():
             offered.append(Capability.QUERY_STEPS)
         if self.query_steps.offers_stepping():
@@ -522,7 +538,7 @@ class LivePublisher:
                 bundle_signature=(
                     None
                     if self.model is None
-                    else WorldSignature(self.model, self.selected_robot).digest()
+                    else self.bundle_writer.signature(self.model, self.selected_robot)
                 ),
             )
 

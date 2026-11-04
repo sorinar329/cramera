@@ -146,6 +146,13 @@ from cramera_protocol.laboratory.runs import (
     TaskRunKey,
     TaskRunState,
 )
+from cramera_protocol.diagnoses import (
+    DiagnosedStepKey,
+    DiagnosesKey,
+    DiagnosisStatus,
+    ParameterCorrectionKey,
+    ParameterVerdict,
+)
 from cramera_protocol.live import Capability, LiveInfoKey, LiveRoute
 from cramera_protocol.offline import (
     AssetProblemKey,
@@ -479,6 +486,11 @@ BROWSER_ENUMERATIONS: Tuple[Type[StrEnum], ...] = (
     PresentationKey,
     PlanResolutionsKey,
     ExecutionRequestKey,
+    ParameterVerdict,
+    ParameterCorrectionKey,
+    DiagnosisStatus,
+    DiagnosedStepKey,
+    DiagnosesKey,
     StepMoment,
     HeldStepKey,
     StepPhase,

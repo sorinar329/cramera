@@ -190,6 +190,12 @@ class LiveVisualization:
     Where bundles are written.
     """
 
+    backdrop: Optional[World] = None
+    """
+    A world drawn around :attr:`world`, at its root, that nothing simulates or records:
+    scenery shown without costing the run any time.
+    """
+
     read_ros_markers: bool = True
     """
     Whether markers are read from ROS when ROS is installed.
@@ -249,6 +255,7 @@ class LiveVisualization:
         with ExitStack() as acquired:
             publisher = LivePublisher(
                 locations=self.locations,
+                backdrop=self.backdrop,
                 class_index=(
                     WorkspaceClassIndex.of_installed_packages()
                     if self.class_index is None

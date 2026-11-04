@@ -16,6 +16,7 @@ from typing_extensions import TYPE_CHECKING, Dict, List, Optional, Sequence
 from cramera_bridge.documents import DocumentFile
 from cramera_bridge.exceptions import EmptyRecording
 from cramera_bridge.export.world_models import ObjectFiles, WorldModels
+from cramera_bridge.geometry import NumericPose
 from cramera_bridge.live.perception_images import bundle_file
 from cramera_bridge.live.recorded_statecharts import RecordedStatecharts
 from cramera_bridge.live.recording import FrameRange, FrameTiming, RecordedFrame
@@ -41,6 +42,7 @@ from semantic_digital_twin.world_description.world_entity import Body
 
 if TYPE_CHECKING:
     from cramera_bridge.live.plan import PerformedPlan
+    from semantic_digital_twin.world import World
 
 SIGNATURE_LENGTH = 16
 """
@@ -76,6 +78,16 @@ The directory below ``meshes`` holding the live bundle's meshes.
 RECORDING_MESH_DIRECTORY = "recording"
 """
 The directory below ``meshes`` holding a recording's meshes.
+"""
+
+BACKDROP_MESH_DIRECTORY = "backdrop"
+"""
+The directory below ``meshes`` holding the live backdrop's meshes.
+"""
+
+BACKDROP_MODEL_NAME = "backdrop"
+"""
+The name of the model drawing the live backdrop.
 """
 
 # %% model identity
@@ -315,6 +327,22 @@ class LiveBundleWriter:
     Serializes writes.
     """
 
+    backdrop: Optional[World] = None
+    """
+    A world drawn around the live one, whose model never changes.
+    """
+
+    backdrop_signature: str = field(default="", init=False)
+    """
+    The identity of what :attr:`backdrop` shows; empty without a backdrop.
+    """
+
+    def __post_init__(self) -> None:
+        if self.backdrop is not None:
+            self.backdrop_signature = WorldSignature(
+                WorldModelView.of_world(self.backdrop), None
+            ).digest()
+
     def live_scene(
         self, model: WorldModelView, selected_robot: Optional[AbstractRobot]
     ) -> str:
@@ -325,7 +353,7 @@ class LiveBundleWriter:
         :param selected_robot: The selected robot.
         :return: The bundle's name.
         """
-        signature = WorldSignature(model, selected_robot).digest()
+        signature = self.signature(model, selected_robot)
         directory = BundleDirectory(self.scenes_directory / ReservedSceneName.LIVE)
         with self.lock:
             existing = DocumentFile(directory.path / BundleFile.SCENE).read_if_present(
@@ -337,10 +365,28 @@ class LiveBundleWriter:
             models = WorldModels(model.world, staging, LIVE_MESH_DIRECTORY).write(
                 model.objects, selected_robot
             )
+            if self.backdrop is not None:
+                backdrop = WorldModels(
+                    self.backdrop,
+                    staging,
+                    BACKDROP_MESH_DIRECTORY,
+                    environment_name=BACKDROP_MODEL_NAME,
+                ).write([], None)
+                models.models.extend(backdrop.models)
+                models.missing_assets.extend(backdrop.missing_assets)
+            files = ObjectFiles(staging)
             scene = SceneDescription(
                 name=ReservedSceneName.LIVE,
                 format_version=CURRENT_VERSION,
                 models=models.models,
+                objects=[
+                    files.describe(
+                        body,
+                        ObjectKey.of(body),
+                        NumericPose.of_entity(model.world, body).published(),
+                    )
+                    for body in model.objects
+                ],
                 robot=models.robot,
                 missing_assets=models.missing_assets,
                 bundle_signature=signature,
@@ -351,6 +397,35 @@ class LiveBundleWriter:
             DocumentFile(staging / BundleFile.SCENE).write(scene)
             directory.publish(staging)
         return ReservedSceneName.LIVE
+
+    def signature(
+        self, model: WorldModelView, selected_robot: Optional[AbstractRobot]
+    ) -> str:
+        """
+        :param model: The world's current model.
+        :param selected_robot: The selected robot.
+        :return: The identity of what the ``__live__`` bundle shows.
+        """
+        return (
+            WorldSignature(model, selected_robot).digest()
+            + self.objects_signature(model)
+            + self.backdrop_signature
+        )
+
+    @staticmethod
+    def objects_signature(model: WorldModelView) -> str:
+        """
+        :param model: The world's current model.
+        :return: The identity of the free objects the model holds and how they are
+            drawn.
+        """
+        text = "|".join(
+            sorted(
+                ObjectKey.of(body) + WorldSignature.drawing_of(body)
+                for body in model.objects
+            )
+        )
+        return hashlib.sha1(text.encode("utf-8")).hexdigest()[:SIGNATURE_LENGTH]
 
     def recording(
         self,

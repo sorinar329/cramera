@@ -141,6 +141,7 @@ class LiveRoutes:
             LiveRoute.PRESETS: publisher.presets,
             LiveRoute.RECORDING: publisher.recording_status,
             LiveRoute.RESOLUTIONS: publisher.resolutions.current,
+            LiveRoute.DIAGNOSES: publisher.diagnoses.current,
             LiveRoute.DETECTED_EVENTS: publisher.detected_events,
         }
         actions = {

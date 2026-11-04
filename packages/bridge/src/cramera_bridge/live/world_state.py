@@ -5,15 +5,32 @@ Snapshots of a world's joint values and poses in the trajectory frame format.
 from __future__ import annotations
 
 import threading
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
-from typing_extensions import Optional
+from typing_extensions import Dict, Optional
 
 from cramera_bridge.geometry import POSE_PRECISION, NumericPose
 from cramera_bridge.live.world_model import ObjectKey, WorldModelView
 from cramera_bridge.robots import RobotRoster
 from cramera_protocol.live_messages import LiveState
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
+
+# %% measured joints
+
+
+class MeasuredJointPositions(ABC):
+    """
+    Where joints actually are, for joints whose position in the world is the set point
+    they are commanded to, such as a gripper's fingers stopped by what they hold.
+    """
+
+    @abstractmethod
+    def positions(self) -> Dict[str, float]:
+        """
+        :return: The measured position of each such joint, by the joint's full name.
+        """
+
 
 # %% snapshots
 
@@ -32,6 +49,12 @@ class WorldStatePublisher:
     lock: threading.Lock = field(default_factory=threading.Lock)
     """
     Guards :attr:`latest`.
+    """
+
+    measured: Optional[MeasuredJointPositions] = None
+    """
+    Replaces the set points of the joints it measures; None publishes the world's
+    joint positions as they are.
     """
 
     def refresh(
@@ -53,6 +76,12 @@ class WorldStatePublisher:
             str(joint.name): round(float(joint.position), POSE_PRECISION)
             for joint in model.joints
         }
+        if self.measured is not None:
+            frames.update(
+                (name, round(position, POSE_PRECISION))
+                for name, position in self.measured.positions().items()
+                if name in frames
+            )
         objects = {
             ObjectKey.of(body): NumericPose.of_entity(world, body).published()
             for body in model.objects
