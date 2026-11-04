@@ -341,11 +341,20 @@ class LivePublisher:
     def observe_state_change(self) -> None:
         """
         Note that the world's state or its debug markers changed, and take a snapshot
-        unless a plan performs, whose ticks take them, or the last one is too recent.
+        unless a plan performs, whose ticks take them, the last one is too recent, or
+        another thread reads the world right now; the next state change takes it then.
+
+        A world notifies its state changes while holding its own lock, and a request
+        reading the world under :attr:`world_lock` waits for that lock, so waiting here
+        for :attr:`world_lock` would leave each thread waiting for the other.
         """
-        with self.world_lock:
+        if not self.world_lock.acquire(blocking=False):
+            return
+        try:
             if self.model is not None and self.pacing.state_changed():
                 self.take_snapshot()
+        finally:
+            self.world_lock.release()
 
     def take_snapshot(self) -> None:
         """
