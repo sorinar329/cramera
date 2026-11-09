@@ -306,6 +306,7 @@ ROBOTS = (
         "semantic_digital_twin.robots.mmp_dresden.MMPDresden",
         ("MMPDresden",),
     ),
+    PinnedClass("panda", "semantic_digital_twin.robots.panda.Panda", ("Panda",)),
     PinnedClass("pr2", "semantic_digital_twin.robots.pr2.PR2", ("PR2",)),
     PinnedClass(
         "stretch", "semantic_digital_twin.robots.stretch.Stretch", ("Stretch",)
