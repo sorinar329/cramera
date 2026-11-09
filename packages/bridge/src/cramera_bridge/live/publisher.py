@@ -295,6 +295,12 @@ class LivePublisher:
     The queries the process asked, as it published them.
     """
 
+    version: str = field(default_factory=lambda: PublisherVersion().text(), init=False)
+    """
+    The version the publisher reports, read once: the installed distributions do not
+    change while the process runs.
+    """
+
     bundle_writer: LiveBundleWriter = field(init=False)
     """
     Writes the live and recording bundles.
@@ -533,7 +539,7 @@ class LivePublisher:
         """
         with self.world_lock:
             return LiveInfo(
-                publisher=f"{DISTRIBUTION} {PublisherVersion().text()}",
+                publisher=f"{DISTRIBUTION} {self.version}",
                 capabilities=self.capabilities(),
                 running=self.world is not None,
                 bundle_signature=(

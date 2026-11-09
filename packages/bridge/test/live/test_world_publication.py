@@ -16,6 +16,7 @@ from cramera_bridge.exceptions import MissingMeshFile, NoWorldAttached, UnknownM
 from cramera_bridge.geometry import NumericPose
 from cramera_bridge.live.activity import SimulationActivity
 from cramera_bridge.live.objects import ServedMesh, ShapePublication
+from cramera_bridge.live import publisher as publisher_module
 from cramera_bridge.live.publisher import LivePublisher
 from cramera_bridge.live.statechart import ChartStructure
 from cramera_bridge.live.transforms import (
@@ -64,6 +65,19 @@ def test_nothing_is_published_before_a_world_is_attached(locations):
     assert publisher.live_scene().scene is None
     with pytest.raises(NoWorldAttached):
         publisher.surfaces()
+
+
+def test_the_installed_version_is_read_once_however_often_info_is_asked(
+    locations, monkeypatch
+):
+    reads = []
+    monkeypatch.setattr(
+        publisher_module, "distributions", lambda: reads.append(None) or []
+    )
+    publisher = LivePublisher(locations=locations)
+    publisher.info()
+    publisher.info()
+    assert len(reads) == 1
 
 
 # %% objects
