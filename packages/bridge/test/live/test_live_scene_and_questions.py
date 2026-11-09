@@ -6,11 +6,15 @@ from __future__ import annotations
 
 import json
 from http import HTTPStatus
+from shutil import rmtree
 
 from cramera.http.messages import HttpMethod
 from cramera_bridge.documents import DocumentFile
 from cramera_bridge.geometry import NumericPose, PublishedColor
-from cramera_bridge.live.bundles import WorldSignature
+from cramera_bridge.export.world_models import WorldModels
+from cramera_bridge.live.bundles import BACKDROP_MODEL_NAME, WorldSignature
+from cramera_bridge.live.publisher import LivePublisher
+from cramera_bridge.questions.workspace_classes import WorkspaceClassIndex
 from cramera_bridge.live.world_model import ObjectKey
 from cramera_bridge.questions.live import (
     LIVE_TITLE,
@@ -37,6 +41,7 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import Tabl
 from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix, Point3
 from semantic_digital_twin.world_description.geometry import Box, Scale
 
+from ..dataset.worlds import KitchenWorld
 from .conftest import dataset_body, live_request
 
 # %% live bundle
@@ -54,6 +59,50 @@ def test_the_live_bundle_is_written_once_per_model(publisher, kitchen, locations
     description = DocumentFile(scene_file).read(SceneDescription)
     assert description.bundle_signature == publisher.info().bundle_signature
     assert description.world_bound is True
+
+
+def test_the_live_bundle_draws_the_backdrop_with_its_model_files(kitchen, locations):
+    publisher = backdrop_publisher(kitchen, locations)
+    for _ in range(2):
+        rmtree(locations.local_scenes / ReservedSceneName.LIVE, ignore_errors=True)
+        bundle = locations.local_scenes / publisher.live_scene().scene
+        description = DocumentFile(bundle / BundleFile.SCENE).read(SceneDescription)
+        [backdrop] = [
+            model for model in description.models if model.name == BACKDROP_MODEL_NAME
+        ]
+        assert (bundle / backdrop.urdf).is_file()
+
+
+def test_the_backdrop_is_exported_once_however_often_the_live_bundle_is_written(
+    kitchen, locations, monkeypatch
+):
+    exported = []
+    write = WorldModels.write
+
+    def counted_write(models, objects, selected_robot):
+        exported.append(models.environment_name)
+        return write(models, objects, selected_robot)
+
+    monkeypatch.setattr(WorldModels, "write", counted_write)
+    publisher = backdrop_publisher(kitchen, locations)
+    for _ in range(2):
+        rmtree(locations.local_scenes / ReservedSceneName.LIVE, ignore_errors=True)
+        publisher.live_scene()
+    assert exported.count(BACKDROP_MODEL_NAME) == 1
+
+
+def backdrop_publisher(kitchen, locations) -> LivePublisher:
+    """
+    :return: A publisher attached to the kitchen world, with a second kitchen as its
+        backdrop.
+    """
+    publisher = LivePublisher(
+        locations=locations,
+        class_index=WorkspaceClassIndex(),
+        backdrop=KitchenWorld.build().world,
+    )
+    publisher.attach(kitchen.world)
+    return publisher
 
 
 def test_the_live_bundle_describes_the_free_objects_where_they_are(

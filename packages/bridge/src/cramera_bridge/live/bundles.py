@@ -6,6 +6,7 @@ and the ``__recording__`` bundle of a recorded run.
 from __future__ import annotations
 
 import hashlib
+import os
 import shutil
 import threading
 from dataclasses import dataclass, field, replace
@@ -15,7 +16,11 @@ from typing_extensions import TYPE_CHECKING, Dict, List, Optional, Sequence
 
 from cramera_bridge.documents import DocumentFile
 from cramera_bridge.exceptions import EmptyRecording
-from cramera_bridge.export.world_models import ObjectFiles, WorldModels
+from cramera_bridge.export.world_models import (
+    ObjectFiles,
+    WorldModels,
+    WorldModelsBundle,
+)
 from cramera_bridge.geometry import NumericPose
 from cramera_bridge.live.perception_images import bundle_file
 from cramera_bridge.live.recorded_statecharts import RecordedStatecharts
@@ -88,6 +93,11 @@ The directory below ``meshes`` holding the live backdrop's meshes.
 BACKDROP_MODEL_NAME = "backdrop"
 """
 The name of the model drawing the live backdrop.
+"""
+
+BACKDROP_SUFFIX = ".backdrop"
+"""
+Ends the name of the directory the live backdrop is written to once.
 """
 
 # %% model identity
@@ -338,11 +348,37 @@ class LiveBundleWriter:
     The identity of what :attr:`backdrop` shows; empty without a backdrop.
     """
 
+    backdrop_models: Optional[WorldModelsBundle] = field(default=None, init=False)
+    """
+    The models of :attr:`backdrop`, written once to :attr:`backdrop_directory` and
+    linked into every ``__live__`` bundle; None without a backdrop.
+    """
+
     def __post_init__(self) -> None:
-        if self.backdrop is not None:
-            self.backdrop_signature = WorldSignature(
-                WorldModelView.of_world(self.backdrop), None
-            ).digest()
+        if self.backdrop is None:
+            return
+        self.backdrop_signature = WorldSignature(
+            WorldModelView.of_world(self.backdrop), None
+        ).digest()
+        if self.backdrop_directory.exists():
+            shutil.rmtree(self.backdrop_directory)
+        self.backdrop_models = WorldModels(
+            self.backdrop,
+            self.backdrop_directory,
+            BACKDROP_MESH_DIRECTORY,
+            environment_name=BACKDROP_MODEL_NAME,
+        ).write([], None)
+
+    @property
+    def backdrop_directory(self) -> Path:
+        """
+        :return: Where :attr:`backdrop` is written, beside the bundles and skipped by
+            the viewer like a bundle being written.
+        """
+        return (
+            self.scenes_directory
+            / f"{STAGING_PREFIX}{ReservedSceneName.LIVE}{BACKDROP_SUFFIX}"
+        )
 
     def live_scene(
         self, model: WorldModelView, selected_robot: Optional[AbstractRobot]
@@ -366,15 +402,15 @@ class LiveBundleWriter:
             models = WorldModels(model.world, staging, LIVE_MESH_DIRECTORY).write(
                 model.objects, selected_robot
             )
-            if self.backdrop is not None:
-                backdrop = WorldModels(
-                    self.backdrop,
+            if self.backdrop_models is not None:
+                shutil.copytree(
+                    self.backdrop_directory,
                     staging,
-                    BACKDROP_MESH_DIRECTORY,
-                    environment_name=BACKDROP_MODEL_NAME,
-                ).write([], None)
-                models.models.extend(backdrop.models)
-                models.missing_assets.extend(backdrop.missing_assets)
+                    dirs_exist_ok=True,
+                    copy_function=os.link,
+                )
+                models.models.extend(self.backdrop_models.models)
+                models.missing_assets.extend(self.backdrop_models.missing_assets)
             scene = SceneDescription(
                 name=ReservedSceneName.LIVE,
                 format_version=CURRENT_VERSION,
