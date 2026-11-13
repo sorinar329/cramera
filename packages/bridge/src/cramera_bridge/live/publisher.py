@@ -104,6 +104,7 @@ from cramera_bridge.questions.desk import QuestionDesk
 from cramera_bridge.questions.workspace_classes import WorkspaceClassIndex
 from coraplex.plans.context_extensions import RobotAccess
 from cramph.data_types import LifeCycleValues
+from cramph.executor import StatechartExecutor
 from cramph.node import StatechartNode
 from giskardpy.motion_statechart.graph_node import MotionStatechartNode
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
@@ -361,7 +362,7 @@ class LivePublisher:
     def observe_state_change(self) -> None:
         """
         Note that the world's state or its debug markers changed, and take a snapshot
-        unless a plan performs, whose ticks take them, the last one is too recent, or
+        unless a plan this process ticks performs, whose ticks take them, the last one is too recent, or
         another thread reads the world right now; the next state change takes it then.
 
         A world notifies its state changes while holding its own lock, and a request
@@ -399,12 +400,15 @@ class LivePublisher:
     def begin_plan(self, executor: PlanExecutor) -> None:
         """
         Publish a plan that is about to perform, keeping the plans performed before for
-        the recording; its robot becomes the selected one.
+        the recording; its robot becomes the selected one. Only an executor that ticks
+        the plan here takes the snapshots while it performs; the state of a plan
+        performed elsewhere, such as by Giskard on a real robot, is taken as it changes.
 
         :param executor: The executor that compiled the plan.
         """
         with self.world_lock:
-            self.pacing.plan_started(executor)
+            if isinstance(executor, StatechartExecutor):
+                self.pacing.plan_started(executor)
             access = executor.context.get_extension(RobotAccess)
             if access is not None and self.model is not None:
                 if access.robot in self.model.robots:

@@ -9,6 +9,8 @@ from dataclasses import dataclass
 
 import pytest
 
+from coraplex.plans.executors import RealRobotPlanExecutor
+from cramph.context import StatechartContext
 from cramera_bridge.live.publisher import LivePublisher
 from cramera_bridge.live.snapshot_pacing import FRAME_INTERVAL, SnapshotPacing
 from cramera_bridge.questions.workspace_classes import WorkspaceClassIndex
@@ -160,3 +162,16 @@ def test_a_plan_records_at_its_ticks_and_its_last_state_when_it_ends(
     paced.end_plan(small_plan.executor)
     assert paced.recording.frame_count() == first + 2
     assert recorded_milk_x(paced, kitchen) == pytest.approx(1.4)
+
+
+def test_a_plan_performed_elsewhere_records_the_state_as_it_changes(
+    paced, kitchen, small_plan, clock
+):
+    executor = RealRobotPlanExecutor(StatechartContext(world=kitchen.world))
+    executor.statechart = small_plan.statechart
+    paced.begin_plan(executor)
+    first = paced.recording.frame_count()
+    clock.advance()
+    move_milk(kitchen, 1.2)
+    assert paced.recording.frame_count() == first + 1
+    assert recorded_milk_x(paced, kitchen) == pytest.approx(1.2)

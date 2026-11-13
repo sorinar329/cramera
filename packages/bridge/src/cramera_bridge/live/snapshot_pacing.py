@@ -4,8 +4,8 @@ than the viewer can use.
 
 Planning code sets the world's state to check a candidate and restores it right after,
 within one tick of the executor performing the plan, and the world reports both changes.
-While a plan performs, a snapshot is therefore taken only after a tick, never from a
-state change itself.
+While a plan this process ticks performs, a snapshot is therefore taken only after a
+tick, never from a state change itself.
 """
 
 from __future__ import annotations
